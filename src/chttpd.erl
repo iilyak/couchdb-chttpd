@@ -196,7 +196,8 @@ handle_request(MochiReq0) ->
         path_parts = [list_to_binary(chttpd:unquote(Part))
                 || Part <- string:tokens(Path, "/")],
         db_url_handlers = db_url_handlers(),
-        design_url_handlers = design_url_handlers()
+        design_url_handlers = design_url_handlers(),
+        authentication_funs = AuthenticationFuns
     },
 
 
@@ -219,7 +220,7 @@ handle_request(MochiReq0) ->
         check_request_uri_length(RawUri),
         case chttpd_cors:maybe_handle_preflight_request(HttpReq) of
         not_preflight ->
-            case authenticate_request(HttpReq, AuthenticationFuns) of
+            case authenticate_request(HttpReq) of
             #httpd{} = Req ->
                 HandlerFun = url_handler(HandlerKey),
                 chttpd_plugin:authorize_request(possibly_hack(Req)),
@@ -396,6 +397,9 @@ make_uri(Req, Raw) ->
 
 
 % Try authentication handlers in order until one returns a result
+authenticate_request(#httpd{authentication_funs = Funs} = Req) ->
+    authenticate_request(Req, Funs).
+
 authenticate_request(#httpd{user_ctx=#user_ctx{}} = Req, _AuthFuns) ->
     Req;
 authenticate_request(#httpd{} = Req, [AuthFun|Rest]) ->
