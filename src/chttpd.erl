@@ -511,7 +511,7 @@ qs(#httpd{mochi_req=MochiReq}) ->
 path(#httpd{mochi_req=MochiReq}) ->
     MochiReq:get(path).
 
-absolute_uri(#httpd{mochi_req=MochiReq}, Path) ->
+absolute_uri(#httpd{mochi_req=MochiReq, absolute_uri = undefined}, Path) ->
     XHost = config:get("httpd", "x_forwarded_host", "X-Forwarded-Host"),
     Host = case MochiReq:get_header_value(XHost) of
         undefined ->
@@ -542,7 +542,9 @@ absolute_uri(#httpd{mochi_req=MochiReq}, Path) ->
                     end
             end
     end,
-    Scheme ++ "://" ++ Host ++ Path.
+    Scheme ++ "://" ++ Host ++ Path;
+absolute_uri(#httpd{absolute_uri = URI}, Path) ->
+    URI ++ Path.
 
 unquote(UrlEncodedString) ->
     mochiweb_util:unquote(UrlEncodedString).
