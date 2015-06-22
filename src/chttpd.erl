@@ -185,8 +185,13 @@ handle_request(MochiReq0) ->
         Other -> Other
     end,
 
+    Nonce = couch_util:to_hex(crypto:rand_bytes(5)),
+
     HttpReq = #httpd{
         mochi_req = MochiReq,
+        begin_ts = Begin,
+        original_method = Method1,
+        nonce = Nonce,
         method = Method,
         path_parts = [list_to_binary(chttpd:unquote(Part))
                 || Part <- string:tokens(Path, "/")],
@@ -201,12 +206,12 @@ handle_request(MochiReq0) ->
         end,
 
     % put small token on heap to keep requests synced to backend calls
-    erlang:put(nonce, couch_util:to_hex(crypto:rand_bytes(5))),
+    erlang:put(nonce, Nonce),
 
     % suppress duplicate log
     erlang:put(dont_log_request, true),
 
-    Result =
+    Res =
     try
         check_request_uri_length(RawUri),
         case chttpd_cors:maybe_handle_preflight_request(HttpReq) of
@@ -214,7 +219,8 @@ handle_request(MochiReq0) ->
             case authenticate_request(HttpReq, AuthenticationFuns) of
             #httpd{} = Req ->
                 HandlerFun = url_handler(HandlerKey),
-                HandlerFun(chttpd_auth_request:authorize_request(possibly_hack(Req)));
+                chttpd_auth_request:authorize_request(possibly_hack(Req)),
+                HandlerFun(HttpReq);
             Response ->
                 Response
             end;
@@ -254,28 +260,68 @@ handle_request(MochiReq0) ->
         maybe_discard_body(HttpReq)
     end,
 
-    RequestTime = timer:now_diff(os:timestamp(), Begin)/1000,
-    {Status, Code} = case Result of
+    {Status, Code, Reason} = case Res of
     {ok, #delayed_resp{resp=Resp}} ->
-        {ok, Resp:get(code)};
+        {ok, Resp:get(code), undefined};
     {ok, Resp} ->
-        {ok, Resp:get(code)};
-    {aborted, Resp, _} ->
-        {aborted, Resp:get(code)}
+        {ok, Resp:get(code), undefined};
+    {aborted, Resp, AbortReason} ->
+        {aborted, Resp:get(code), AbortReason}
     end,
-    Host = MochiReq:get_header_value("Host"),
-    couch_log:notice("~s ~s ~s ~s ~s ~B ~p ~B", [get(nonce), Peer, Host,
-        atom_to_list(Method1), RawUri, Code, Status, round(RequestTime)]),
-    couch_stats:update_histogram([couchdb, request_time], RequestTime),
-    case Result of
-    {ok, _} ->
-        couch_stats:increment_counter([couchdb, httpd, requests]),
-        {ok, Resp};
-    {aborted, _, Reason} ->
-        couch_stats:increment_counter([couchdb, httpd, aborted_requests]),
-        couch_log:error("Response abnormally terminated: ~p", [Reason]),
-        exit(normal)
+
+    Result0 = #httpd_res{
+        code = Code,
+        status = Status,
+        response = Resp,
+        nonce = Nonce,
+        reason = Reason
+    },
+
+    Result1 = update_stats(HttpReq, Result0),
+    maybe_log(HttpReq, Result1),
+
+    case Result1 of
+        #httpd_res{status = ok} ->
+            {ok, Resp};
+        #httpd_res{status = aborted, reason = Reason} ->
+            couch_log:error("Response abnormally terminated: ~p", [Reason]),
+            exit(normal)
     end.
+
+update_stats(HttpReq, #httpd_res{end_ts = undefined} = Res) ->
+    update_stats(HttpReq, Res#httpd_res{end_ts = os:timestamp()});
+update_stats(#httpd{begin_ts = BeginTime}, #httpd_res{} = Res) ->
+    #httpd_res{status = Status, end_ts = EndTime} = Res,
+    RequestTime = timer:now_diff(EndTime, BeginTime) / 1000,
+    couch_stats:update_histogram([couchdb, request_time], RequestTime),
+    case Status of
+        ok ->
+            couch_stats:increment_counter([couchdb, httpd, requests]);
+        aborted ->
+            couch_stats:increment_counter([couchdb, httpd, aborted_requests])
+    end,
+    Res.
+
+maybe_log(#httpd{} = HttpReq, #httpd_res{should_log = true} = HttpRes) ->
+    #httpd{
+        mochi_req = MochiReq,
+        begin_ts = BeginTime,
+        original_method = Method
+    } = HttpReq,
+    #httpd_res{
+        end_ts = EndTime,
+        code = Code,
+        status = Status
+    } = HttpRes,
+    Peer = MochiReq:get(peer),
+    Host = MochiReq:get_header_value("Host"),
+    RawUri = MochiReq:get(raw_path),
+    RequestTime = timer:now_diff(EndTime, BeginTime) / 1000,
+    couch_log:notice("~s ~s ~s ~s ~s ~B ~p ~B", [get(nonce), Peer, Host,
+        atom_to_list(Method), RawUri, Code, Status, round(RequestTime)]);
+maybe_log(_HttpReq, #httpd_res{should_log = false}) ->
+    ok.
+
 
 %% HACK: replication currently handles two forms of input, #db{} style
 %% and #http_db style. We need a third that makes use of fabric. #db{}
