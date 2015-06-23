@@ -223,8 +223,8 @@ handle_request(MochiReq0) ->
             case authenticate_request(HttpReq) of
             #httpd{} = Req ->
                 HandlerFun = url_handler(HandlerKey),
-                chttpd_plugin:authorize_request(possibly_hack(Req)),
-                HandlerFun(HttpReq);
+                NewReq = chttpd_plugin:authorize_request(possibly_hack(Req)),
+                HandlerFun(NewReq);
             Response ->
                 Response
             end;
