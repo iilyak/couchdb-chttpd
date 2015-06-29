@@ -193,6 +193,7 @@ handle_request(MochiReq0) ->
         original_method = Method1,
         nonce = Nonce,
         method = Method,
+        peer = Peer,
         path_parts = [list_to_binary(chttpd:unquote(Part))
                 || Part <- string:tokens(Path, "/")],
         db_url_handlers = db_url_handlers(),
@@ -312,14 +313,14 @@ maybe_log(#httpd{} = HttpReq, #httpd_res{should_log = true} = HttpRes) ->
     #httpd{
         mochi_req = MochiReq,
         begin_ts = BeginTime,
-        original_method = Method
+        original_method = Method,
+        peer = Peer
     } = HttpReq,
     #httpd_res{
         end_ts = EndTime,
         code = Code,
         status = Status
     } = HttpRes,
-    Peer = MochiReq:get(peer),
     Host = MochiReq:get_header_value("Host"),
     RawUri = MochiReq:get(raw_path),
     RequestTime = timer:now_diff(EndTime, BeginTime) / 1000,
