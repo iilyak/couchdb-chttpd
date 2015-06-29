@@ -261,7 +261,7 @@ allow_credentials(Config, Origin) ->
     get_origin_config(Config, Origin, <<"allow_credentials">>,
         ?CORS_DEFAULT_ALLOW_CREDENTIALS).
 
-get_cors_config(_Req) ->
+get_cors_config(#httpd{cors_config = undefined} = Req) ->
     EnableCors = config:get("httpd", "enable_cors", "false") =:= "true",
     AllowCredentials = config:get("cors", "credentials", "false") =:= "true",
     AllowHeaders = case config:get("cors", "methods", undefined) of
@@ -284,8 +284,9 @@ get_cors_config(_Req) ->
         {<<"allow_methods">>, AllowMethods},
         {<<"allow_headers">>, AllowHeaders},
         {<<"origins">>, {Origins}}
-    ].
-
+    ];
+get_cors_config(#httpd{cors_config = Config} = Req) ->
+    Config.
 
 is_cors_enabled(Config) ->
     case get(disable_couch_httpd_cors) of
