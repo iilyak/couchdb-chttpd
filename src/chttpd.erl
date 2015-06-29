@@ -224,7 +224,7 @@ handle_request(MochiReq0) ->
             case authenticate_request(HttpReq) of
             #httpd{} = Req ->
                 HandlerFun = url_handler(HandlerKey),
-                NewReq = chttpd_plugin:authorize_request(possibly_hack(Req)),
+                NewReq = authorize_request(possibly_hack(Req)),
                 HandlerFun(NewReq);
             Response ->
                 Response
@@ -420,6 +420,14 @@ authenticate_request(#httpd{} = Req, []) ->
     end;
 authenticate_request(Response, _AuthFuns) ->
     Response.
+
+authorize_request(Req) ->
+    case chttpd_plugin:is_configured() of
+        true ->
+            chttpd_plugin:authorize_request(Req);
+        false ->
+            chttpd_auth_request:authorize_request(Req)
+    end.
 
 increment_method_stats(Method) ->
     couch_stats:increment_counter([couchdb, httpd_request_methods, Method]).

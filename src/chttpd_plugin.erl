@@ -1,6 +1,7 @@
 -module(chttpd_plugin).
 
 -export([
+    is_configured/0,
     before_request/1,
     after_request/2,
     handle_error/1,
@@ -13,10 +14,14 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-authorize_request(HttpReq) ->
+is_configured() ->
     Handle = couch_epi:get_handle(chttpd),
-    %% callbacks return true only if it specifically allow the given Id
-    couch_epi:any(Handle, chttpd, authorize_request, [HttpReq], [ignore_providers]).
+    couch_epi:is_configured(Handle, authorize_request, 1).
+
+authorize_request(HttpReq) ->
+    [HttpReq1] = with_pipe(authorize_request, [HttpReq]),
+    HttpReq1.
+
 
 before_request(HttpReq) ->
     [HttpReq1] = with_pipe(before_request, [HttpReq]),
